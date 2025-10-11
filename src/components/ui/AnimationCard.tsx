@@ -1,20 +1,87 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
+/**
+ * Props for the AnimationCard component
+ */
 interface AnimationCardProps {
+  /** Display title of the animation */
   title: string
+  /** Description text (expandable/collapsible) */
   description: string
+  /** Unique animation identifier (e.g., "modal-base__scale-gentle-pop") */
   animationId: string
+  /** Optional technology tags (e.g., ["framer", "spring"]) */
   tags?: string[]
+  /** Optional callback triggered when replay button is clicked */
   onReplay?: () => void
-  infiniteAnimation?: boolean // For animations that should loop indefinitely
-  disableReplay?: boolean // When true, hide/disable the replay button
+  /** If true, animation loops infinitely without IntersectionObserver */
+  infiniteAnimation?: boolean
+  /** If true, hides/disables the replay button */
+  disableReplay?: boolean
+  /** Animation component to render, can be ReactNode or render function for lights animations */
   children: React.ReactNode | ((props: { bulbCount: number; onColor: string }) => React.ReactNode)
 }
 
-export function AnimationCard({
+/**
+ * Card component for displaying and controlling animation demos.
+ *
+ * Features:
+ * - **IntersectionObserver**: Automatically plays animation when 30% visible in viewport
+ * - **Replay control**: Button to manually restart animation by remounting child
+ * - **Expandable description**: Collapsible description text with chevron indicator
+ * - **Special lights controls**: Bulb count and color picker for animations starting with "lights__"
+ * - **Infinite mode**: Skips IntersectionObserver for continuously looping animations
+ *
+ * The component uses a `key` prop on the child wrapper to force remount and restart
+ * animations. For lights animations (detected by ID prefix), it provides additional
+ * controls for customizing bulb count (4-22) and color.
+ *
+ * @example
+ * ```tsx
+ * // Basic usage with static animation component
+ * <AnimationCard
+ *   title="Scale Pop"
+ *   description="Gentle scale animation with spring physics"
+ *   animationId="modal-base__scale-gentle-pop"
+ *   tags={["framer", "spring"]}
+ * >
+ *   <ModalScalePop />
+ * </AnimationCard>
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // Lights animation with render function (receives bulbCount and onColor)
+ * <AnimationCard
+ *   title="String Lights"
+ *   description="Animated string of lights with customizable count and color"
+ *   animationId="lights__string-lights"
+ *   tags={["css", "keyframes"]}
+ * >
+ *   {({ bulbCount, onColor }) => (
+ *     <StringLightsAnimation numBulbs={bulbCount} onColor={onColor} />
+ *   )}
+ * </AnimationCard>
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // Infinite animation (e.g., loading spinner)
+ * <AnimationCard
+ *   title="Loading Spinner"
+ *   description="Continuously spinning loader"
+ *   animationId="loading-states__spinner"
+ *   infiniteAnimation
+ *   disableReplay
+ * >
+ *   <Spinner />
+ * </AnimationCard>
+ * ```
+ */
+function AnimationCardComponent({
   title,
   description,
   animationId,
@@ -195,3 +262,45 @@ export function AnimationCard({
     </Card>
   )
 }
+
+/**
+ * Memoized AnimationCard component to prevent unnecessary re-renders.
+ *
+ * Custom comparison function handles:
+ * - Primitive props (title, description, animationId, etc.)
+ * - Array props (tags) with shallow comparison
+ * - Function props (onReplay, children functions) by reference
+ *
+ * Re-renders only when props actually change, improving performance
+ * when rendering grids of animations.
+ */
+export const AnimationCard = memo(AnimationCardComponent, (prevProps, nextProps) => {
+  // Compare primitive props
+  if (
+    prevProps.title !== nextProps.title ||
+    prevProps.description !== nextProps.description ||
+    prevProps.animationId !== nextProps.animationId ||
+    prevProps.infiniteAnimation !== nextProps.infiniteAnimation ||
+    prevProps.disableReplay !== nextProps.disableReplay ||
+    prevProps.onReplay !== nextProps.onReplay ||
+    prevProps.children !== nextProps.children
+  ) {
+    return false // Props changed, re-render
+  }
+
+  // Compare tags array (shallow comparison)
+  const prevTags = prevProps.tags || []
+  const nextTags = nextProps.tags || []
+
+  if (prevTags.length !== nextTags.length) {
+    return false // Tags changed, re-render
+  }
+
+  for (let i = 0; i < prevTags.length; i++) {
+    if (prevTags[i] !== nextTags[i]) {
+      return false // Tag changed, re-render
+    }
+  }
+
+  return true // Props are equal, skip re-render
+})

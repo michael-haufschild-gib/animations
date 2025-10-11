@@ -1,128 +1,43 @@
-import githubIcon from '@/assets/github.svg'
+import { AppDrawer } from '@/components/ui/AppDrawer'
+import { AppHeader } from '@/components/ui/AppHeader'
 import { AppSidebar } from '@/components/ui/AppSidebar'
 import { GroupSection } from '@/components/ui/catalog'
 import { useAnimations } from '@/hooks/useAnimations'
-import type { Group } from '@/types/animation'
+import { useAppNavigationMachine } from '@/hooks/useAppNavigationMachine'
+import type { Variants } from 'framer-motion'
 import { AnimatePresence, motion, useDragControls } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useRef } from 'react'
 import './App.css'
+
+// Animation variants for group transitions
+const slideVariants: Variants = {
+  enter: (direction: number) => ({ x: direction > 0 ? 1000 : -1000, opacity: 0 }),
+  center: { zIndex: 1, x: 0, opacity: 1 },
+  exit: (direction: number) => ({ zIndex: 0, x: direction < 0 ? 1000 : -1000, opacity: 0 }),
+}
+
+// Swipe gesture configuration
+const SWIPE_CONFIDENCE_THRESHOLD = 10000
+const swipePower = (offset: number, velocity: number) => Math.abs(offset) * velocity
 
 function App() {
   const { categories, isLoading, error } = useAnimations()
-  const { groupId } = useParams<{ groupId?: string }>()
-  const navigate = useNavigate()
-  const [currentGroupId, setCurrentGroupId] = useState<string>('')
-  const [direction, setDirection] = useState<number>(0)
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const {
+    context: { currentGroupId, direction, allGroups },
+    send,
+    isDrawerOpen,
+  } = useAppNavigationMachine(categories)
   const dragControls = useDragControls()
   const appBarRef = useRef<HTMLDivElement | null>(null)
 
-  // Get all groups in order for navigation
-  const allGroups: Group[] = categories.flatMap((category) => category.groups)
-
-  // Initialize from URL param or default to first group
-  useEffect(() => {
-    if (allGroups.length === 0) return
-
-    if (groupId && allGroups.some((g) => g.id === groupId)) {
-      // URL has a valid groupId
-      setCurrentGroupId(groupId)
-    } else if (!currentGroupId) {
-      // No URL param or invalid, default to first group
-      const firstGroupId = allGroups[0].id
-      setCurrentGroupId(firstGroupId)
-      navigate(`/${firstGroupId}`, { replace: true })
-    }
-  }, [allGroups, groupId, currentGroupId, navigate])
-
+  // Navigation handlers using state machine
   const handleCategorySelect = (categoryId: string) => {
-    // Navigate to the first group in the selected category
-    const category = categories.find((c) => c.id === categoryId)
-    if (category && category.groups.length > 0) {
-      handleGroupSelect(category.groups[0].id)
-    }
+    send({ type: 'NAVIGATE_TO_CATEGORY', categoryId })
   }
 
   const handleGroupSelect = (groupId: string) => {
-    if (groupId === currentGroupId) return
-
-    const currentIndex = allGroups.findIndex((g) => g.id === currentGroupId)
-    const newIndex = allGroups.findIndex((g) => g.id === groupId)
-
-    setDirection(newIndex > currentIndex ? 1 : -1)
-    setCurrentGroupId(groupId)
-    navigate(`/${groupId}`)
+    send({ type: 'NAVIGATE_TO_GROUP', groupId })
   }
-
-  // Close drawer on ESC
-  useEffect(() => {
-    if (!isDrawerOpen) return
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsDrawerOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isDrawerOpen])
-
-  // Prevent background scroll when drawer is open
-  useEffect(() => {
-    if (isDrawerOpen) {
-      const prev = document.body.style.overflow
-      document.body.style.overflow = 'hidden'
-      return () => {
-        document.body.style.overflow = prev
-      }
-    }
-  }, [isDrawerOpen])
-
-  // Wrapped selectors for mobile to close the drawer
-  const handleCategorySelectMobile = (categoryId: string) => {
-    handleCategorySelect(categoryId)
-    setIsDrawerOpen(false)
-  }
-  const handleGroupSelectMobile = (groupId: string) => {
-    handleGroupSelect(groupId)
-    setIsDrawerOpen(false)
-  }
-
-  // When navigating between groups, scroll the new group into view but keep the app bar visible
-  useEffect(() => {
-    if (!currentGroupId || typeof window === 'undefined') return
-
-    const id = `group-${currentGroupId}`
-    const EXTRA_OFFSET = 16
-    let raf = 0
-    let timeout: ReturnType<typeof setTimeout> | undefined
-
-    const scrollGroupIntoView = () => {
-      const el = document.getElementById(id)
-      if (!el) return false
-
-      const appBar = appBarRef.current ?? document.querySelector<HTMLElement>('[data-app-shell="bar"]')
-      const appBarHeight = appBar?.getBoundingClientRect().height ?? 0
-      const targetY = Math.max(0, el.getBoundingClientRect().top + window.scrollY - appBarHeight - EXTRA_OFFSET)
-
-      if (Math.abs(window.scrollY - targetY) > 1) {
-        window.scrollTo({ top: targetY, behavior: 'auto' })
-      }
-
-      return true
-    }
-
-    const attemptScroll = () => {
-      if (!scrollGroupIntoView()) {
-        timeout = setTimeout(scrollGroupIntoView, 360)
-      }
-    }
-
-    raf = requestAnimationFrame(attemptScroll)
-
-    return () => {
-      cancelAnimationFrame(raf)
-      if (timeout) clearTimeout(timeout)
-    }
-  }, [currentGroupId])
 
   if (error) {
     return (
@@ -143,28 +58,6 @@ function App() {
 
   const currentGroup = allGroups.find((g) => g.id === currentGroupId)
 
-  const variants = {
-    enter: (direction: number) => ({
-      x: direction > 0 ? 1000 : -1000,
-      opacity: 0,
-    }),
-    center: {
-      zIndex: 1,
-      x: 0,
-      opacity: 1,
-    },
-    exit: (direction: number) => ({
-      zIndex: 0,
-      x: direction < 0 ? 1000 : -1000,
-      opacity: 0,
-    }),
-  }
-
-  const swipeConfidenceThreshold = 10000
-  const swipePower = (offset: number, velocity: number) => {
-    return Math.abs(offset) * velocity
-  }
-
   const handleDragStart = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
 
@@ -180,47 +73,7 @@ function App() {
   return (
     <div className="min-h-screen">
       {/* Mobile header */}
-      <div className="pf-mobile-header" data-app-shell="bar" ref={appBarRef}>
-        <button
-          type="button"
-          className="pf-hamburger"
-          aria-label="Open menu"
-          aria-haspopup="dialog"
-          aria-controls="pf-sidebar-drawer"
-          onClick={() => setIsDrawerOpen(true)}
-        >
-          {/* Simple hamburger icon using currentColor */}
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
-        {currentGroup && (
-          <span className="pf-mobile-header__title">
-            {currentGroup.title} ({currentGroup.animations.length})
-          </span>
-        )}
-        <a
-          href="https://github.com/michael-h-patrianna/animations"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="pf-github-link"
-          aria-label="View source on GitHub"
-        >
-          <img src={githubIcon} alt="GitHub" className="pf-github-icon" />
-        </a>
-      </div>
+      <AppHeader ref={appBarRef} currentGroup={currentGroup} onMenuClick={() => send({ type: 'OPEN_DRAWER' })} />
 
       <div className="pf-main">
         <AppSidebar
@@ -244,7 +97,7 @@ function App() {
                   <motion.div
                     key={currentGroupId}
                     custom={direction}
-                    variants={variants}
+                    variants={slideVariants}
                     initial="enter"
                     animate="center"
                     exit="exit"
@@ -260,19 +113,8 @@ function App() {
                     onPointerDown={handleDragStart}
                     onDragEnd={(_, { offset, velocity }) => {
                       const swipe = swipePower(offset.x, velocity.x)
-                      const currentIndex = allGroups.findIndex((g) => g.id === currentGroupId)
-
-                      if (swipe < -swipeConfidenceThreshold) {
-                        // Swipe left - go to next group
-                        if (currentIndex < allGroups.length - 1) {
-                          handleGroupSelect(allGroups[currentIndex + 1].id)
-                        }
-                      } else if (swipe > swipeConfidenceThreshold) {
-                        // Swipe right - go to previous group
-                        if (currentIndex > 0) {
-                          handleGroupSelect(allGroups[currentIndex - 1].id)
-                        }
-                      }
+                      if (swipe < -SWIPE_CONFIDENCE_THRESHOLD) send({ type: 'SWIPE_NEXT' })
+                      else if (swipe > SWIPE_CONFIDENCE_THRESHOLD) send({ type: 'SWIPE_PREV' })
                     }}
                     style={{ width: '100%' }}
                   >
@@ -285,49 +127,15 @@ function App() {
         </main>
       </div>
 
-      {/* Drawer for mobile sidebar */}
-      <div
-        id="pf-sidebar-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-hidden={!isDrawerOpen}
-        hidden={!isDrawerOpen}
-        className={`pf-drawer ${isDrawerOpen ? 'is-open' : ''}`}
-      >
-        <div className="pf-drawer__overlay" onClick={() => setIsDrawerOpen(false)} />
-        <div className="pf-drawer__panel">
-          <div className="pf-drawer__panel-header">
-            <button
-              type="button"
-              className="pf-hamburger"
-              aria-label="Close menu"
-              onClick={() => setIsDrawerOpen(false)}
-            >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <AppSidebar
-            categories={categories}
-            currentGroupId={currentGroupId}
-            onCategorySelect={handleCategorySelectMobile}
-            onGroupSelect={handleGroupSelectMobile}
-            className="pf-sidebar"
-          />
-        </div>
-      </div>
+      {/* Mobile drawer */}
+      <AppDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => send({ type: 'CLOSE_DRAWER' })}
+        categories={categories}
+        currentGroupId={currentGroupId}
+        onCategorySelect={handleCategorySelect}
+        onGroupSelect={handleGroupSelect}
+      />
     </div>
   )
 }
